@@ -132,7 +132,7 @@ Crea un archivo `.env` en la raíz del proyecto:
 ```env
 # API URL de tu modelo local (ej. Ollama o LM Studio)
 LOCAL_AI_URL=http://localhost:11434
-LOCAL_AI_MODEL=qwen2.5:7b
+LOCAL_AI_MODEL=qwen2.5:0.5b
 
 # Base de datos (opcional, por defecto usa SQLite local)
 DATABASE_URL=sqlite:///./checkbar.db

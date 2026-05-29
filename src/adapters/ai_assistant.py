@@ -14,8 +14,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from src.ports.ai_assistant_port import IAIAssistant
 
-# Cargar variables de entorno
-load_dotenv()
+# Cargar variables de entorno, forzando lectura del archivo .env
+load_dotenv(override=True)
 
 # Ruta al archivo de conocimiento RAG
 KNOWLEDGE_BASE_PATH = Path(__file__).parent / "recetas_y_reglas.txt"
