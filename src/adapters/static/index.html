@@ -13,6 +13,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"/>
 
+  <!-- jsPDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
   <!-- Tailwind Config from Stitch -->
   <script id="tailwind-config">
     tailwind.config = {
@@ -110,6 +113,10 @@
 
   <!-- Custom Styles -->
   <link rel="stylesheet" href="/static/style.css"/>
+  <style>
+    .spa-view { display: none; }
+    .spa-view.active { display: block; }
+  </style>
 </head>
 <body class="flex min-h-screen overflow-hidden">
 
@@ -129,41 +136,24 @@
     <!-- Navigation Links -->
     <ul class="flex flex-col gap-sm flex-1">
       <li>
-        <a class="flex items-center gap-sm px-sm py-sm text-primary font-bold border-r-2 border-primary bg-primary/5 rounded-l-md active:scale-95 transition-transform" href="#" id="nav-dashboard">
+        <a class="nav-link flex items-center gap-sm px-sm py-sm text-primary font-bold border-r-2 border-primary bg-primary/5 rounded-l-md active:scale-95 transition-transform" href="#" data-target="view-dashboard">
           <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">dashboard</span>
           <span class="font-body-lg text-body-lg">Dashboard</span>
         </a>
       </li>
       <li>
-        <a class="flex items-center gap-sm px-sm py-sm text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors rounded-md" href="#" id="nav-inventario">
+        <a class="nav-link flex items-center gap-sm px-sm py-sm text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors rounded-md" href="#" data-target="view-inventario">
           <span class="material-symbols-outlined">inventory_2</span>
-          <span class="font-body-lg text-body-lg">Inventario</span>
+          <span class="font-body-lg text-body-lg">Inventario y Productos</span>
         </a>
       </li>
       <li>
-        <a class="flex items-center gap-sm px-sm py-sm text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors rounded-md" href="#" id="nav-ventas">
+        <a class="nav-link flex items-center gap-sm px-sm py-sm text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors rounded-md" href="#" data-target="view-nueva-venta">
           <span class="material-symbols-outlined">point_of_sale</span>
           <span class="font-body-lg text-body-lg">Nueva Venta</span>
         </a>
       </li>
-      <li>
-        <a class="flex items-center gap-sm px-sm py-sm text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors rounded-md" href="#">
-          <span class="material-symbols-outlined">analytics</span>
-          <span class="font-body-lg text-body-lg">Reportes</span>
-        </a>
-      </li>
     </ul>
-
-    <!-- User Profile -->
-    <div class="mt-auto border-t border-white/10 pt-md px-sm flex items-center gap-sm cursor-pointer hover:bg-primary/5 rounded-md p-sm transition-colors">
-      <div class="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center border border-primary/30 shrink-0">
-        <span class="material-symbols-outlined text-primary text-[20px]">person</span>
-      </div>
-      <div class="overflow-hidden">
-        <p class="font-body-sm text-body-sm text-on-surface truncate">Admin</p>
-        <p class="font-label-caps text-label-caps text-on-surface-variant truncate">Bar Manager</p>
-      </div>
-    </div>
   </nav>
 
   <!-- ═══════════════════════════════════════════════════════ -->
@@ -195,77 +185,123 @@
       </div>
     </header>
 
-    <!-- ═══════════════════════════════════════════════ -->
-    <!-- INVENTORY TABLE CANVAS -->
-    <!-- ═══════════════════════════════════════════════ -->
     <div class="flex-1 overflow-y-auto p-margin-desktop relative z-10" id="main-content">
 
-      <!-- Header + KPI Row -->
-      <div class="flex justify-between items-end mb-lg">
-        <div>
-          <h2 class="font-headline-lg text-headline-lg text-on-surface tracking-tight">Inventario Actual</h2>
-          <p class="font-body-sm text-body-sm text-on-surface-variant mt-xs">Vista detallada de existencias · Conectado al backend CheckBar</p>
-        </div>
-        <button
-          id="btn-add-product"
-          class="bg-primary text-on-primary font-body-sm text-body-sm px-md py-2 rounded-lg font-semibold hover:bg-primary-fixed-dim transition-colors flex items-center gap-xs shadow-[0_0_15px_rgba(208,188,255,0.3)]"
-        >
-          <span class="material-symbols-outlined text-[20px]">add</span>
-          Añadir Producto
-        </button>
-      </div>
-
-      <!-- KPI Cards -->
-      <div class="grid grid-cols-3 gap-md mb-lg" id="kpi-row">
-        <div class="glass-panel rounded-xl p-md">
-          <p class="font-label-caps text-label-caps text-on-surface-variant mb-xs">TOTAL PRODUCTOS</p>
-          <p id="kpi-total" class="font-display-lg text-[32px] font-bold text-on-surface">--</p>
-        </div>
-        <div class="glass-panel rounded-xl p-md">
-          <p class="font-label-caps text-label-caps text-on-surface-variant mb-xs">ALERTAS STOCK BAJO</p>
-          <p id="kpi-alertas" class="font-display-lg text-[32px] font-bold text-tertiary">--</p>
-        </div>
-        <div class="glass-panel rounded-xl p-md">
-          <p class="font-label-caps text-label-caps text-on-surface-variant mb-xs">CATEGORIAS</p>
-          <p id="kpi-categorias" class="font-display-lg text-[32px] font-bold text-primary">--</p>
-        </div>
-      </div>
-
-      <!-- Inventory Table (Glassmorphism) -->
-      <div class="glass-panel rounded-xl overflow-hidden shadow-2xl">
-        <!-- Loading State -->
-        <div id="table-loading" class="flex items-center justify-center py-xl">
-          <div class="flex items-center gap-sm text-on-surface-variant">
-            <span class="material-symbols-outlined animate-spin text-primary">autorenew</span>
-            <span class="font-body-lg text-body-lg">Cargando inventario desde la API...</span>
+      <!-- ========================================== -->
+      <!-- VISTA: DASHBOARD -->
+      <!-- ========================================== -->
+      <div id="view-dashboard" class="spa-view active">
+        <!-- Header -->
+        <div class="flex justify-between items-end mb-lg">
+          <div>
+            <h2 class="font-headline-lg text-headline-lg text-on-surface tracking-tight">Dashboard Principal</h2>
+            <p class="font-body-sm text-body-sm text-on-surface-variant mt-xs">Métricas generales de CheckBar</p>
           </div>
         </div>
 
-        <!-- Table (hidden until data loads) -->
-        <table id="inventory-table" class="w-full text-left border-collapse hidden">
-          <thead class="bg-surface-container/50 border-b border-white/10">
-            <tr>
-              <th class="py-sm px-md font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Producto</th>
-              <th class="py-sm px-md font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Categoria</th>
-              <th class="py-sm px-md font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider w-64">Stock</th>
-              <th class="py-sm px-md font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Precio Venta</th>
-              <th class="py-sm px-md font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Margen</th>
-              <th class="py-sm px-md font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider text-right">Estado</th>
-            </tr>
-          </thead>
-          <tbody id="inventory-body" class="divide-y divide-white/5">
-            <!-- Populated by app.js -->
-          </tbody>
-        </table>
+        <!-- KPI Cards -->
+        <div class="grid grid-cols-3 gap-md mb-lg" id="kpi-row">
+          <div class="glass-panel rounded-xl p-md">
+            <p class="font-label-caps text-label-caps text-on-surface-variant mb-xs">TOTAL PRODUCTOS</p>
+            <p id="kpi-total" class="font-display-lg text-[32px] font-bold text-on-surface">--</p>
+          </div>
+          <div class="glass-panel rounded-xl p-md">
+            <p class="font-label-caps text-label-caps text-on-surface-variant mb-xs">ALERTAS STOCK BAJO</p>
+            <p id="kpi-alertas" class="font-display-lg text-[32px] font-bold text-tertiary">--</p>
+          </div>
+          <div class="glass-panel rounded-xl p-md">
+            <p class="font-label-caps text-label-caps text-on-surface-variant mb-xs">CATEGORIAS</p>
+            <p id="kpi-categorias" class="font-display-lg text-[32px] font-bold text-primary">--</p>
+          </div>
+        </div>
+      </div>
 
-        <!-- Error state -->
-        <div id="table-error" class="hidden flex-col items-center justify-center py-xl gap-sm text-center p-md">
-          <span class="material-symbols-outlined text-error text-[48px]">error</span>
-          <p class="font-title-md text-title-md text-on-surface">Error al cargar el inventario</p>
-          <p id="table-error-msg" class="font-body-sm text-body-sm text-on-surface-variant">Asegurate de que el servidor FastAPI este corriendo en <code>http://localhost:8000</code></p>
-          <button onclick="loadInventory()" class="mt-sm bg-primary text-on-primary font-body-sm text-body-sm px-md py-2 rounded-lg font-semibold hover:bg-primary-fixed-dim transition-colors">
-            Reintentar
+      <!-- ========================================== -->
+      <!-- VISTA: INVENTARIO -->
+      <!-- ========================================== -->
+      <div id="view-inventario" class="spa-view">
+        <div class="flex justify-between items-end mb-lg">
+          <div>
+            <h2 class="font-headline-lg text-headline-lg text-on-surface tracking-tight">Inventario de Productos</h2>
+            <p class="font-body-sm text-body-sm text-on-surface-variant mt-xs">Catálogo detallado y control de stock</p>
+          </div>
+          <button
+            id="btn-add-product"
+            class="bg-primary text-on-primary font-body-sm text-body-sm px-md py-2 rounded-lg font-semibold hover:bg-primary-fixed-dim transition-colors flex items-center gap-xs shadow-[0_0_15px_rgba(208,188,255,0.3)]"
+          >
+            <span class="material-symbols-outlined text-[20px]">add</span>
+            Añadir Producto
           </button>
+        </div>
+
+        <!-- Inventory Table -->
+        <div class="glass-panel rounded-xl overflow-hidden shadow-2xl">
+          <div id="table-loading" class="flex items-center justify-center py-xl">
+            <div class="flex items-center gap-sm text-on-surface-variant">
+              <span class="material-symbols-outlined animate-spin text-primary">autorenew</span>
+              <span class="font-body-lg text-body-lg">Cargando inventario desde la API...</span>
+            </div>
+          </div>
+
+          <table id="inventory-table" class="w-full text-left border-collapse hidden">
+            <thead class="bg-surface-container/50 border-b border-white/10">
+              <tr>
+                <th class="py-sm px-md font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Producto</th>
+                <th class="py-sm px-md font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Categoria</th>
+                <th class="py-sm px-md font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider w-64">Stock</th>
+                <th class="py-sm px-md font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Precio Venta</th>
+                <th class="py-sm px-md font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Margen</th>
+                <th class="py-sm px-md font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider text-right">Estado</th>
+              </tr>
+            </thead>
+            <tbody id="inventory-body" class="divide-y divide-white/5">
+              <!-- Populated by app.js -->
+            </tbody>
+          </table>
+
+          <div id="table-error" class="hidden flex-col items-center justify-center py-xl gap-sm text-center p-md">
+            <span class="material-symbols-outlined text-error text-[48px]">error</span>
+            <p class="font-title-md text-title-md text-on-surface">Error al cargar el inventario</p>
+            <p id="table-error-msg" class="font-body-sm text-body-sm text-on-surface-variant">Asegurate de que el servidor FastAPI este corriendo en <code>http://localhost:8000</code></p>
+            <button onclick="loadInventory()" class="mt-sm bg-primary text-on-primary font-body-sm text-body-sm px-md py-2 rounded-lg font-semibold hover:bg-primary-fixed-dim transition-colors">
+              Reintentar
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========================================== -->
+      <!-- VISTA: NUEVA VENTA -->
+      <!-- ========================================== -->
+      <div id="view-nueva-venta" class="spa-view">
+        <div class="mb-lg">
+          <h2 class="font-headline-lg text-headline-lg text-on-surface tracking-tight">Nueva Venta</h2>
+          <p class="font-body-sm text-body-sm text-on-surface-variant mt-xs">Registra una venta y el inventario se descontará automáticamente.</p>
+        </div>
+
+        <div class="glass-panel rounded-xl p-md w-full max-w-2xl mx-auto">
+          <form id="form-venta" class="flex flex-col gap-sm">
+            <div id="venta-error" class="hidden bg-error/10 border border-error text-error p-3 rounded-md text-sm"></div>
+            <div id="venta-success" class="hidden bg-primary/10 border border-primary text-primary p-3 rounded-md text-sm"></div>
+
+            <label class="font-label-caps text-on-surface-variant">Seleccionar Producto</label>
+            <select id="venta-producto" required class="bg-surface-container border border-outline-variant text-on-surface rounded-md p-2 focus:ring-1 focus:ring-primary">
+              <option value="">Selecciona un producto...</option>
+              <!-- Llenado por app.js -->
+            </select>
+
+            <label class="font-label-caps text-on-surface-variant mt-2">Cantidad a Vender</label>
+            <input type="number" id="venta-cantidad" required min="1" value="1" class="bg-surface-container border border-outline-variant text-on-surface rounded-md p-2 focus:ring-1 focus:ring-primary"/>
+
+            <label class="font-label-caps text-on-surface-variant mt-2">Método de Pago</label>
+            <select id="venta-metodo" required class="bg-surface-container border border-outline-variant text-on-surface rounded-md p-2 focus:ring-1 focus:ring-primary">
+              <option value="Efectivo">Efectivo</option>
+              <option value="Tarjeta">Tarjeta de Crédito / Débito</option>
+              <option value="Transferencia">Transferencia</option>
+            </select>
+
+            <button type="submit" class="mt-4 bg-primary text-on-primary font-semibold py-2 rounded-md hover:bg-primary-fixed-dim transition-colors">Registrar Venta</button>
+          </form>
         </div>
       </div>
 
@@ -273,6 +309,54 @@
       <div class="h-32"></div>
     </div>
   </main>
+
+  <!-- MODAL: AÑADIR PRODUCTO -->
+  <div id="modal-add-product" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] hidden flex items-center justify-center">
+    <div class="glass-panel rounded-xl p-lg w-full max-w-lg">
+      <h3 class="font-title-md text-on-surface mb-sm">Añadir Nuevo Producto</h3>
+      <form id="form-producto" class="flex flex-col gap-sm">
+        <div id="prod-error" class="hidden bg-error/10 border border-error text-error p-2 rounded-md text-sm"></div>
+        <div class="grid grid-cols-2 gap-sm">
+          <div>
+            <label class="text-xs text-on-surface-variant">Nombre</label>
+            <input type="text" id="prod-nombre" required class="w-full bg-surface-container border border-outline-variant text-on-surface rounded-md p-2">
+          </div>
+          <div>
+            <label class="text-xs text-on-surface-variant">Categoría</label>
+            <input type="text" id="prod-categoria" required class="w-full bg-surface-container border border-outline-variant text-on-surface rounded-md p-2">
+          </div>
+          <div>
+            <label class="text-xs text-on-surface-variant">Precio Unitario</label>
+            <input type="number" id="prod-precio-u" step="0.01" required class="w-full bg-surface-container border border-outline-variant text-on-surface rounded-md p-2">
+          </div>
+          <div>
+            <label class="text-xs text-on-surface-variant">Precio Costo</label>
+            <input type="number" id="prod-precio-c" step="0.01" required class="w-full bg-surface-container border border-outline-variant text-on-surface rounded-md p-2">
+          </div>
+          <div>
+            <label class="text-xs text-on-surface-variant">Stock Actual</label>
+            <input type="number" id="prod-stock-a" required class="w-full bg-surface-container border border-outline-variant text-on-surface rounded-md p-2">
+          </div>
+          <div>
+            <label class="text-xs text-on-surface-variant">Stock Mínimo</label>
+            <input type="number" id="prod-stock-m" required class="w-full bg-surface-container border border-outline-variant text-on-surface rounded-md p-2">
+          </div>
+          <div>
+            <label class="text-xs text-on-surface-variant">Unidad Medida</label>
+            <input type="text" id="prod-unidad" required class="w-full bg-surface-container border border-outline-variant text-on-surface rounded-md p-2">
+          </div>
+          <div>
+            <label class="text-xs text-on-surface-variant">Proveedor</label>
+            <input type="text" id="prod-proveedor" required class="w-full bg-surface-container border border-outline-variant text-on-surface rounded-md p-2">
+          </div>
+        </div>
+        <div class="flex justify-end gap-sm mt-4">
+          <button type="button" id="btn-cancel-product" class="text-on-surface-variant hover:text-white">Cancelar</button>
+          <button type="submit" class="bg-primary text-on-primary px-4 py-2 rounded-md font-semibold">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- ═══════════════════════════════════════════════════════ -->
   <!-- FLOATING BARMAN AI CHAT PANEL -->
@@ -289,7 +373,7 @@
         </div>
         <div>
           <h3 class="font-title-md text-title-md text-on-surface leading-none">Barman AI</h3>
-          <p class="font-label-caps text-label-caps text-on-surface-variant" id="ai-status">Powered by Gemini RAG</p>
+          <p class="font-label-caps text-label-caps text-on-surface-variant" id="ai-status">Powered by Local AI</p>
         </div>
         <!-- Live indicator -->
         <div class="w-2 h-2 rounded-full bg-primary animate-pulse ml-xs" id="ai-live-dot"></div>

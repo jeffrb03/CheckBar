@@ -143,6 +143,18 @@ class VentaResponse(BaseModel):
     lineas: List[dict]
 
 
+class ProductoRequest(BaseModel):
+    """Schema de entrada para crear un nuevo producto."""
+    nombre: str = Field(..., min_length=1)
+    categoria: str = Field(..., min_length=1)
+    precio_unitario: float = Field(..., gt=0)
+    precio_costo: float = Field(..., gt=0)
+    stock_actual: int = Field(..., ge=0)
+    stock_minimo: int = Field(..., ge=0)
+    unidad_medida: str = Field(..., min_length=1)
+    proveedor: str = Field(..., min_length=1)
+
+
 class ChatRequest(BaseModel):
     """Schema de entrada para el asistente IA."""
     pregunta: str = Field(..., min_length=1, description="Pregunta al asistente")
@@ -172,11 +184,11 @@ def get_inventario_service(db: Session = Depends(get_db)) -> InventarioService:
 
 def get_ai_assistant():
     """Inyecta el asistente de IA (RAG con Gemini)."""
-    from src.adapters.ai_assistant import create_assistant
     try:
+        from src.adapters.ai_assistant import create_assistant
         return create_assistant()
-    except ValueError as e:
-        return None  # La API key no esta configurada
+    except (ValueError, ImportError, Exception):
+        return None  # Libreria no instalada o API key faltante
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -203,6 +215,38 @@ async def get_productos(
     """
     productos = service.listar_productos()
     return [p.to_dict() for p in productos]
+
+
+@app.post(
+    "/productos",
+    response_model=ProductoResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Añadir un nuevo producto",
+    tags=["Inventario"],
+)
+async def post_producto(
+    producto_request: ProductoRequest,
+    service: InventarioService = Depends(get_inventario_service),
+):
+    """Registra un nuevo producto en el inventario."""
+    try:
+        nuevo_producto = Producto(
+            nombre=producto_request.nombre,
+            categoria=producto_request.categoria,
+            precio_unitario=producto_request.precio_unitario,
+            precio_costo=producto_request.precio_costo,
+            stock_actual=producto_request.stock_actual,
+            stock_minimo=producto_request.stock_minimo,
+            unidad_medida=producto_request.unidad_medida,
+            proveedor=producto_request.proveedor,
+        )
+        producto_guardado = service.agregar_producto(nuevo_producto)
+        return producto_guardado.to_dict()
+    except (CantidadInvalidaError, PrecioInvalidoError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
 
 
 @app.post(

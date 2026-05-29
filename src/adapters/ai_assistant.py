@@ -1,20 +1,17 @@
 """
-Adaptador de IA - Asistente RAG con Google Gemini
+Adaptador de IA - Asistente RAG con IA Local
 CheckBar - Capa de Adaptadores
 
 Implementa el patron RAG (Retrieval-Augmented Generation):
 1. RETRIEVAL: Lee el archivo de conocimiento (recetas y reglas)
 2. AUGMENTATION: Inyecta el contexto en el prompt
-3. GENERATION: Llama a la API de Gemini para generar la respuesta
-
-Requiere la variable de entorno GEMINI_API_KEY configurada en el .env
+3. GENERATION: Llama a una API compatible con OpenAI (Ollama/LM Studio)
 """
 
 import os
+import httpx
 from pathlib import Path
-
 from dotenv import load_dotenv
-
 from src.ports.ai_assistant_port import IAIAssistant
 
 # Cargar variables de entorno
@@ -25,15 +22,7 @@ KNOWLEDGE_BASE_PATH = Path(__file__).parent / "recetas_y_reglas.txt"
 
 
 def _load_knowledge_base() -> str:
-    """
-    Carga el archivo de conocimiento para el RAG.
-    
-    Returns:
-        Contenido del archivo como string.
-        
-    Raises:
-        FileNotFoundError: Si el archivo de conocimiento no existe.
-    """
+    """Carga el archivo de conocimiento para el RAG."""
     if not KNOWLEDGE_BASE_PATH.exists():
         raise FileNotFoundError(
             f"Archivo de conocimiento no encontrado: {KNOWLEDGE_BASE_PATH}"
@@ -41,98 +30,88 @@ def _load_knowledge_base() -> str:
     return KNOWLEDGE_BASE_PATH.read_text(encoding="utf-8")
 
 
-class GeminiRAGAssistant(IAIAssistant):
+class LocalAIRAGAssistant(IAIAssistant):
     """
-    Implementacion del asistente de IA usando Google Gemini con patron RAG.
-    
-    Flujo RAG:
-    1. Lee la base de conocimiento (recetas_y_reglas.txt)
-    2. Construye un prompt enriquecido con el contexto
-    3. Llama a la API de Gemini
-    4. Retorna la respuesta generada
+    Implementacion del asistente de IA usando un modelo local (via API compatible OpenAI).
     """
 
     def __init__(self):
-        """Inicializa el cliente de Gemini con la API key del entorno."""
-        self._api_key = os.getenv("GEMINI_API_KEY")
-        if not self._api_key:
-            raise ValueError(
-                "GEMINI_API_KEY no encontrada. "
-                "Configura esta variable en tu archivo .env"
-            )
-        self._model = None
-        self._client = None
-        self._initialize_client()
-
-    def _initialize_client(self):
-        """Inicializa el cliente de Google Generative AI."""
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=self._api_key)
-            self._model = genai.GenerativeModel(
-                model_name="gemini-1.5-flash",
-                generation_config={
-                    "temperature": 0.7,
-                    "top_p": 0.95,
-                    "top_k": 40,
-                    "max_output_tokens": 1024,
-                },
-            )
-        except ImportError:
-            raise ImportError(
-                "La libreria 'google-generativeai' no esta instalada. "
-                "Ejecuta: pip install google-generativeai"
-            )
+        """Inicializa el cliente con la URL y el modelo del entorno."""
+        self._api_url = os.getenv("LOCAL_AI_URL", "http://localhost:11434/v1")
+        self._model = os.getenv("LOCAL_AI_MODEL", "qwen2.5:7b")
 
     def chat(self, pregunta: str) -> str:
         """
-        Procesa una pregunta usando el patron RAG.
-        
-        Paso 1 - RETRIEVAL: Carga la base de conocimiento.
-        Paso 2 - AUGMENTATION: Construye el prompt enriquecido.
-        Paso 3 - GENERATION: Llama a Gemini API.
-        
-        Args:
-            pregunta: Consulta del bartender o gerente.
-            
-        Returns:
-            Respuesta generada por Gemini contextualizada con el conocimiento del bar.
+        Procesa una pregunta usando el patron RAG y el modelo local.
         """
         if not pregunta or not pregunta.strip():
             return "Por favor, escribe una pregunta para que pueda ayudarte."
 
-        # PASO 1: RETRIEVAL - Cargar base de conocimiento
         try:
             contexto = _load_knowledge_base()
         except FileNotFoundError as e:
             return f"Error: No se pudo cargar la base de conocimiento. {str(e)}"
 
-        # PASO 2: AUGMENTATION - Construir prompt enriquecido
-        prompt = _build_rag_prompt(contexto=contexto, pregunta=pregunta)
+        system_prompt, user_prompt = _build_rag_messages(contexto=contexto, pregunta=pregunta)
 
-        # PASO 3: GENERATION - Llamar a la API de Gemini
+        # GENERATION - Llamar a la API local (Ollama Nativo /api/generate)
         try:
-            response = self._model.generate_content(prompt)
-            return response.text
+            # Construimos el endpoint. Si el usuario puso /v1, asumimos OpenAI
+            endpoint = f"{self._api_url}/api/generate"
+            is_openai = False
+            
+            if "/v1" in self._api_url:
+                endpoint = f"{self._api_url}/chat/completions"
+                is_openai = True
+                payload = {
+                    "model": self._model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "temperature": 0.7
+                }
+            else:
+                # Payload para Ollama /api/generate (más compatible con versiones antiguas)
+                prompt_text = f"Sistema: {system_prompt}\n\nUsuario: {pregunta}"
+                payload = {
+                    "model": self._model,
+                    "prompt": prompt_text,
+                    "stream": False,
+                    "options": {"temperature": 0.7}
+                }
+
+            response = httpx.post(
+                endpoint,
+                json=payload,
+                timeout=60.0
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            if is_openai:
+                return data["choices"][0]["message"]["content"]
+            else:
+                return data.get("response", "Respuesta inesperada de la IA local.")
+                
+        except httpx.RequestError as e:
+            return (
+                f"Error al conectar con la IA local en {self._api_url}. "
+                f"Asegurate de que el servidor (Ollama/LM Studio) este encendido. "
+                f"Detalle técnico: {str(e)}"
+            )
         except Exception as e:
             return (
-                f"Lo siento, hubo un error al procesar tu consulta. "
+                f"Lo siento, hubo un error inesperado al procesar tu consulta. "
                 f"Detalle tecnico: {str(e)}"
             )
 
 
-def _build_rag_prompt(contexto: str, pregunta: str) -> str:
+def _build_rag_messages(contexto: str, pregunta: str) -> tuple[str, str]:
     """
-    Construye el prompt enriquecido para el patron RAG.
-    
-    Args:
-        contexto: Contenido de la base de conocimiento.
-        pregunta: Pregunta del usuario.
-        
-    Returns:
-        Prompt completo listo para enviar a Gemini.
+    Construye los mensajes de sistema y usuario para la IA local.
     """
-    return f"""Eres el asistente de IA de CheckBar, un sistema de gestion de inventario y cocteleria para un bar de alta calidad. Tu nombre es "Barman AI".
+    system_prompt = f"""Eres el asistente de IA de CheckBar, un sistema de gestion de inventario y cocteleria para un bar de alta calidad. Tu nombre es "Barman AI".
 
 Tu personalidad:
 - Eres experto en cocteleria y gestion de bar
@@ -152,19 +131,12 @@ Instrucciones importantes:
 3. Para recetas, incluye los ingredientes y pasos de preparacion de manera clara.
 4. Para consultas de inventario o politicas, cita las reglas especificas.
 5. Si la pregunta no esta cubierta en la base de conocimiento, usa tu conocimiento general de cocteleria pero indica que es informacion general.
-6. Mantén las respuestas concisas y practicas para uso en el bar.
+6. Mantén las respuestas concisas y practicas para uso en el bar."""
 
-PREGUNTA DEL BARTENDER/GERENTE:
-{pregunta}
-
-RESPUESTA DE BARMAN AI:"""
+    user_prompt = pregunta
+    return system_prompt, user_prompt
 
 
-def create_assistant() -> GeminiRAGAssistant:
-    """
-    Factory function para crear el asistente de IA.
-    
-    Returns:
-        Instancia del asistente de IA configurado.
-    """
-    return GeminiRAGAssistant()
+def create_assistant() -> LocalAIRAGAssistant:
+    """Factory function para crear el asistente de IA."""
+    return LocalAIRAGAssistant()

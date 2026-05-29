@@ -47,7 +47,7 @@ Arquitectura Hexagonal (Ports & Adapters)
 |---|---|
 | Backend | Python + FastAPI |
 | Base de datos | SQLite + SQLAlchemy ORM |
-| IA / RAG | Google Gemini 1.5 Flash |
+| IA / RAG | Modelos Locales (Ollama / LM Studio) ej. Qwen |
 | Frontend | HTML5 + CSS3 + JS Vanilla (diseño de Google Stitch) |
 | Tests | pytest (TDD) + Gherkin (BDD) |
 | Arquitectura | Hexagonal Monolito |
@@ -130,9 +130,9 @@ pip install -r requirements.txt
 Crea un archivo `.env` en la raíz del proyecto:
 
 ```env
-# API Key de Google Gemini (requerida para el asistente IA)
-# Obtén tu key en: https://aistudio.google.com/app/apikey
-GEMINI_API_KEY=tu_api_key_aqui
+# API URL de tu modelo local (ej. Ollama o LM Studio)
+LOCAL_AI_URL=http://localhost:11434
+LOCAL_AI_MODEL=qwen2.5:7b
 
 # Base de datos (opcional, por defecto usa SQLite local)
 DATABASE_URL=sqlite:///./checkbar.db
@@ -287,7 +287,7 @@ El asistente usa el patrón **Retrieval-Augmented Generation**:
 
 1. **Retrieval:** Lee `src/adapters/recetas_y_reglas.txt` (5 recetas + 3 políticas)
 2. **Augmentation:** Inyecta el contexto en el prompt
-3. **Generation:** Llama a Gemini 1.5 Flash para generar la respuesta
+3. **Generation:** Llama a tu modelo local (Ollama/LM Studio) para generar la respuesta
 
 El archivo `recetas_y_reglas.txt` contiene:
 - Receta de Mojito Clásico
