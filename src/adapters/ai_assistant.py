@@ -84,7 +84,7 @@ class LocalAIRAGAssistant(IAIAssistant):
             response = httpx.post(
                 endpoint,
                 json=payload,
-                timeout=60.0
+                timeout=300.0
             )
             response.raise_for_status()
             data = response.json()
