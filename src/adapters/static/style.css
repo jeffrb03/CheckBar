@@ -1,0 +1,129 @@
+/* ============================================================
+   CheckBar - Custom Styles (Complementa el diseño de Stitch)
+   ============================================================ */
+
+/* --- Global --- */
+body {
+  background-color: #131313;
+  color: #e5e2e1;
+  font-family: 'Inter', sans-serif;
+}
+
+/* --- Glassmorphism Panel --- */
+.glass-panel {
+  background: rgba(19, 19, 19, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+/* --- Custom Scrollbar --- */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #353534; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #958ea0; }
+
+/* --- Stock Progress Bar animations --- */
+.stock-bar-fill {
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* --- Inventory Row Hover --- */
+#inventory-body tr {
+  transition: background 0.15s ease;
+}
+
+/* --- Low stock amber glow --- */
+.stock-low .stock-bar-fill {
+  background: #ffb869;
+  box-shadow: 0 0 10px rgba(255, 184, 105, 0.5);
+}
+
+/* --- Normal stock violet glow --- */
+.stock-normal .stock-bar-fill {
+  background: #d0bcff;
+  box-shadow: 0 0 10px rgba(208, 188, 255, 0.4);
+}
+
+/* --- Chat message animations --- */
+@keyframes messageIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.chat-message {
+  animation: messageIn 0.25s ease forwards;
+}
+
+/* --- Typing indicator --- */
+@keyframes typing {
+  0%, 60%, 100% { transform: translateY(0); }
+  30%           { transform: translateY(-6px); }
+}
+.typing-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #cbc3d7;
+  animation: typing 1.2s infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* --- Spin animation for loading --- */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* --- KPI cards hover --- */
+#kpi-row > div {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+#kpi-row > div:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+/* --- Chat panel collapsed state --- */
+#ai-chat-panel.collapsed {
+  height: 60px;
+  overflow: hidden;
+}
+#ai-chat-panel.collapsed #chat-body,
+#ai-chat-panel.collapsed #chat-input-area {
+  display: none;
+}
+
+/* --- Pulse animation for AI live dot --- */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* --- Search highlight --- */
+.search-highlight {
+  background: rgba(208, 188, 255, 0.2);
+  border-radius: 2px;
+}
+
+/* --- Category badge --- */
+.category-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  background: rgba(53, 53, 52, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: #cbc3d7;
+  white-space: nowrap;
+}

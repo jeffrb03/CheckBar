@@ -333,7 +333,7 @@ async def health_check():
 # ARCHIVOS ESTATICOS (Frontend)
 # ─────────────────────────────────────────────────────────────────────────────
 
-STATIC_DIR = os.path.join(os.path.dirname(__file__), "adapters", "static")
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "adapters", "static")
 
 # Montar archivos estaticos si el directorio existe
 if os.path.exists(STATIC_DIR):
