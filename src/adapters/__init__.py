@@ -1,0 +1,1 @@
+# CheckBar Adapters Layer

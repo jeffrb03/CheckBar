@@ -1,0 +1,1 @@
+# CheckBar Domain Layer
