@@ -16,6 +16,9 @@
   <!-- jsPDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <!-- Tailwind Config from Stitch -->
   <script id="tailwind-config">
     tailwind.config = {
@@ -212,6 +215,17 @@
           <div class="glass-panel rounded-xl p-md">
             <p class="font-label-caps text-label-caps text-on-surface-variant mb-xs">CATEGORIAS</p>
             <p id="kpi-categorias" class="font-display-lg text-[32px] font-bold text-primary">--</p>
+          </div>
+        </div>
+
+        <!-- Sales Chart -->
+        <div class="glass-panel rounded-xl p-lg shadow-2xl relative w-full h-[400px]">
+          <div class="mb-md">
+            <h3 class="font-title-lg text-title-lg text-on-surface">Historial de Ventas</h3>
+            <p class="font-body-sm text-body-sm text-on-surface-variant">Ingresos generados por día</p>
+          </div>
+          <div class="w-full h-[300px]">
+            <canvas id="salesChart"></canvas>
           </div>
         </div>
       </div>

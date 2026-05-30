@@ -5,6 +5,7 @@
 
 const API_BASE = window.location.origin;
 let allProducts = [];
+let salesChartInstance = null;
 let chatOpen = true;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -14,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupChatInput();
   setupVentaForm();
   setupProductoForm();
+  loadSalesChart();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -192,6 +194,7 @@ function setupVentaForm() {
       sucEl.classList.remove('hidden');
       form.reset();
       loadInventory(); // Reload to update stock
+      loadSalesChart(); // Reload sales chart
       
       // Generar PDF (Factura ficticia)
       if (window.jspdf) {
@@ -426,4 +429,105 @@ function escapeHtml(text) {
   if (typeof text !== 'string') return String(text || '');
   const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
   return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DASHBOARD SALES CHART
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function loadSalesChart() {
+  try {
+    const response = await fetch(`${API_BASE}/ventas`);
+    if(!response.ok) return;
+    
+    const ventas = await response.json();
+    
+    // Aggregate sales by date
+    const salesByDate = {};
+    ventas.forEach(v => {
+      if (!v.fecha_venta) return;
+      const dateStr = v.fecha_venta.split('T')[0];
+      salesByDate[dateStr] = (salesByDate[dateStr] || 0) + v.total;
+    });
+
+    // Sort dates
+    const dates = Object.keys(salesByDate).sort();
+    const totals = dates.map(d => salesByDate[d]);
+
+    const ctx = document.getElementById('salesChart').getContext('2d');
+    
+    // Destroy previous instance to prevent overlapping
+    if (salesChartInstance) {
+      salesChartInstance.destroy();
+    }
+
+    // Chart styling matching the design system
+    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, 'rgba(208, 188, 255, 0.5)'); // Primary color with opacity
+    gradient.addColorStop(1, 'rgba(208, 188, 255, 0.0)');
+
+    salesChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: dates.length ? dates : ['No hay ventas'],
+        datasets: [{
+          label: 'Ingresos Totales ($)',
+          data: totals.length ? totals : [0],
+          borderColor: '#D0BCFF',
+          backgroundColor: gradient,
+          borderWidth: 3,
+          pointBackgroundColor: '#F2B8B5',
+          pointBorderColor: '#fff',
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          fill: true,
+          tension: 0.4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: false
+          },
+          tooltip: {
+            backgroundColor: 'rgba(28, 27, 31, 0.9)',
+            titleColor: '#fff',
+            bodyColor: '#D0BCFF',
+            padding: 10,
+            cornerRadius: 8,
+            displayColors: false
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            grid: {
+              color: 'rgba(255, 255, 255, 0.05)',
+              drawBorder: false,
+            },
+            ticks: {
+              color: '#CAC4D0',
+              callback: function(value) {
+                return '$' + value;
+              }
+            }
+          },
+          x: {
+            grid: {
+              display: false,
+              drawBorder: false,
+            },
+            ticks: {
+              color: '#CAC4D0'
+            }
+          }
+        }
+      }
+    });
+
+  } catch(err) {
+    console.error("Error loading sales chart", err);
+  }
 }

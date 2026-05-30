@@ -249,6 +249,21 @@ async def post_producto(
         )
 
 
+@app.get(
+    "/ventas",
+    response_model=List[VentaResponse],
+    summary="Listar historial de ventas",
+    tags=["Ventas"],
+)
+async def get_ventas(db: Session = Depends(get_db)):
+    """
+    Retorna todo el historial de ventas registradas.
+    """
+    venta_repo = SQLiteVentaRepository(db)
+    ventas = venta_repo.listar_todas()
+    return ventas
+
+
 @app.post(
     "/ventas",
     response_model=VentaResponse,
