@@ -166,6 +166,11 @@ class ChatResponse(BaseModel):
     pregunta: str
 
 
+class ChatResetResponse(BaseModel):
+    """Respuesta al limpiar el historial de chat."""
+    mensaje: str
+
+
 class ErrorResponse(BaseModel):
     """Schema de error estandarizado."""
     error: str
@@ -182,13 +187,28 @@ def get_inventario_service(db: Session = Depends(get_db)) -> InventarioService:
     return InventarioService(producto_repository=repo)
 
 
+# Singleton del asistente para mantener memoria de conversación entre peticiones
+_ai_assistant_instance = None
+
 def get_ai_assistant():
-    """Inyecta el asistente de IA (RAG con Gemini)."""
-    try:
-        from src.adapters.ai_assistant import create_assistant
-        return create_assistant()
-    except (ValueError, ImportError, Exception):
-        return None  # Libreria no instalada o API key faltante
+    """Retorna el singleton del asistente de IA (preserva la memoria de conversación)."""
+    global _ai_assistant_instance
+    if _ai_assistant_instance is None:
+        try:
+            # Forzar recarga del .env antes de crear el asistente
+            from dotenv import load_dotenv
+            load_dotenv(override=True)
+            from src.adapters.ai_assistant import create_assistant
+            _ai_assistant_instance = create_assistant()
+        except (ValueError, ImportError, Exception):
+            return None
+    return _ai_assistant_instance
+
+
+def reset_ai_singleton():
+    """Reinicia el singleton de IA (útil al cambiar API keys sin reiniciar el servidor)."""
+    global _ai_assistant_instance
+    _ai_assistant_instance = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -330,43 +350,32 @@ async def post_venta(
 @app.post(
     "/chat",
     response_model=ChatResponse,
-    summary="Asistente Barman AI (RAG)",
+    summary="Asistente Barman AI con memoria y acceso a inventario",
     tags=["IA"],
 )
 async def post_chat(
     chat_request: ChatRequest,
+    db: Session = Depends(get_db),
 ):
     """
-    Asistente de inteligencia artificial para el bar.
+    Asistente de IA con memoria de conversación y acceso al inventario en tiempo real.
     
-    Usa el patron RAG (Retrieval-Augmented Generation):
-    1. Recupera el conocimiento del bar (recetas, politicas)
-    2. Enriquece el prompt con ese contexto
-    3. Genera una respuesta usando Google Gemini
-    
-    El asistente puede responder sobre:
-    - Recetas de cocteleria (Mojito, Margarita, Old Fashioned, etc.)
-    - Politicas de inventario
-    - Recomendaciones de preparacion
-    - Preguntas sobre ingredientes y tecnicas
-    
-    Requiere que GEMINI_API_KEY este configurado en el .env
+    Capacidades:
+    - Consulta el inventario actual de la BD
+    - Recuerda mensajes anteriores de la sesión
+    - Responde recetas, stock, recomendaciones y análisis de ventas
     """
     pregunta = chat_request.pregunta
-
-    # Obtener el asistente (puede ser None si no hay API key)
     assistant = get_ai_assistant()
 
     if assistant is None:
-        # Respuesta de fallback si no hay API key configurada
         return ChatResponse(
             pregunta=pregunta,
-            respuesta=(
-                "El asistente IA no esta configurado. "
-                "Por favor configura la variable GEMINI_API_KEY en tu archivo .env "
-                "y reinicia el servidor."
-            )
+            respuesta="El asistente IA no está disponible. Asegúrate de que Ollama esté corriendo."
         )
+
+    # Inyectar sesión de BD para acceso al inventario en tiempo real
+    assistant.set_db_session(db)
 
     try:
         respuesta = assistant.chat(pregunta)
@@ -376,6 +385,37 @@ async def post_chat(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Error en el servicio de IA: {str(e)}",
         )
+
+
+@app.post(
+    "/chat/reset",
+    response_model=ChatResetResponse,
+    summary="Limpiar historial del chat",
+    tags=["IA"],
+)
+async def reset_chat():
+    """Limpia el historial de conversación del asistente IA."""
+    assistant = get_ai_assistant()
+    if assistant:
+        assistant.clear_history()
+    return ChatResetResponse(mensaje="Historial de conversación limpiado exitosamente.")
+
+
+@app.get(
+    "/chat/status",
+    summary="Estado del backend de IA",
+    tags=["IA"],
+)
+async def chat_status():
+    """Retorna qué backend de IA está activo (Gemini o local)."""
+    assistant = get_ai_assistant()
+    backend = getattr(assistant, "backend_name", "Desconocido") if assistant else "No disponible"
+    gemini_configured = bool(os.getenv("GEMINI_API_KEY", "").strip())
+    return {
+        "backend": backend,
+        "gemini_configurado": gemini_configured,
+        "modelo_local": os.getenv("LOCAL_AI_MODEL", "qwen2.5:0.5b"),
+    }
 
 
 @app.get(

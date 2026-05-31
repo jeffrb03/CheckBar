@@ -1,11 +1,11 @@
 # CheckBar 🍸
 
-> **Sistema monolítico de control de inventario y facturación para bar con asistente IA integrado.**
+> **Sistema monolítico de control de inventario, ventas y facturación para bar con asistente IA integrado.**
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green)](https://fastapi.tiangolo.com)
 [![SQLite](https://img.shields.io/badge/Database-SQLite-orange)](https://sqlite.org)
-[![Gemini](https://img.shields.io/badge/AI-Google%20Gemini-purple)](https://ai.google.dev)
+[![Gemini](https://img.shields.io/badge/AI-Gemini%202.0%20Flash-purple)](https://ai.google.dev)
 [![Architecture](https://img.shields.io/badge/Architecture-Hexagonal-blueviolet)](#arquitectura)
 
 ---
@@ -14,11 +14,11 @@
 
 CheckBar digitaliza y automatiza los procesos críticos de un bar:
 
-- **Inventario en tiempo real** — consulta y actualización del stock
-- **Registro de ventas** — facturación con descuento automático de inventario
-- **Alertas de stock bajo** — notificación visual cuando un producto cae bajo el mínimo
-- **Asistente IA (Barman AI)** — chatbot con RAG que responde sobre recetas de cócteles y políticas de inventario
-- **Dashboard web moderno** — interfaz glassmorphism dark-mode diseñada en Google Stitch
+- **Inventario en tiempo real** — consulta, actualización y alertas de stock bajo
+- **Registro de ventas** — facturación con descuento automático de inventario y generación de PDF
+- **Dashboard con gráficas** — historial de ventas diarias (30 días) y top 7 productos más vendidos
+- **Alertas de notificaciones** — panel desplegable con productos que requieren reposición
+- **Barman AI** — asistente inteligente con acceso al inventario real, memoria de conversación y recetas de cócteles
 
 ---
 
@@ -47,8 +47,10 @@ Arquitectura Hexagonal (Ports & Adapters)
 |---|---|
 | Backend | Python + FastAPI |
 | Base de datos | SQLite + SQLAlchemy ORM |
-| IA / RAG | Modelos Locales (Ollama / LM Studio) ej. Qwen |
-| Frontend | HTML5 + CSS3 + JS Vanilla (diseño de Google Stitch) |
+| IA Principal | Google Gemini 2.0 Flash (API gratuita) |
+| IA Fallback | Ollama local (qwen2.5:0.5b) |
+| Frontend | HTML5 + CSS3 + JS Vanilla (diseño Google Stitch) |
+| Gráficas | Chart.js (línea de ventas + barras top productos) |
 | Tests | pytest (TDD) + Gherkin (BDD) |
 | Arquitectura | Hexagonal Monolito |
 
@@ -61,12 +63,12 @@ CheckBar/
 ├── .gitignore
 ├── requirements.txt
 ├── README.md
-├── docs/
-│   └── SDD.md                    ← System Design Document con diagramas UML
+├── scripts/
+│   └── seed_ventas.py            ← Genera 364 ventas de historial (demo)
 ├── src/
 │   ├── main.py                   ← FastAPI app (endpoints + static files)
 │   ├── domain/
-│   │   ├── producto.py           ← Entidad Producto (lógica de negocio)
+│   │   ├── producto.py           ← Entidad Producto
 │   │   ├── venta.py              ← Entidades Venta + LineaVenta
 │   │   ├── inventario_service.py ← Servicio de dominio
 │   │   └── exceptions.py        ← Excepciones de dominio
@@ -75,18 +77,18 @@ CheckBar/
 │   │   └── ai_assistant_port.py  ← Interface IAIAssistant
 │   └── adapters/
 │       ├── database.py           ← SQLite + SQLAlchemy
-│       ├── ai_assistant.py       ← Gemini RAG adapter
-│       ├── seed.py               ← Seeder con 49 productos de bar
-│       ├── recetas_y_reglas.txt  ← Base de conocimiento RAG
+│       ├── ai_assistant.py       ← Gemini 2.0 Flash (+ fallback Ollama)
+│       ├── seed.py               ← Seeder con 50 productos de bar
+│       ├── recetas_y_reglas.txt  ← Base de conocimiento (recetas)
 │       └── static/
 │           ├── index.html        ← Dashboard web
 │           ├── style.css         ← Estilos glassmorphism
-│           └── app.js            ← Lógica frontend (conexión API)
+│           └── app.js            ← Lógica frontend
 └── tests/
     ├── bdd/
     │   └── inventario.feature    ← Escenarios Gherkin (BDD)
     └── tdd/
-        ├── test_inventario.py    ← 28 pruebas unitarias (TDD)
+        ├── test_inventario.py    ← Pruebas unitarias (TDD)
         └── fake_repository.py    ← Repositorio en memoria para tests
 ```
 
@@ -127,44 +129,54 @@ pip install -r requirements.txt
 
 ### 4. Configurar variables de entorno
 
-Crea un archivo `.env` en la raíz del proyecto:
+Crea un archivo `.env` en la raíz del proyecto (copia desde `.env.example`):
 
 ```env
-# API URL de tu modelo local (ej. Ollama o LM Studio)
+# --- GEMINI API (principal, gratis en https://aistudio.google.com/apikey) ---
+# Pega aquí tu API key. Si está vacía, se usará el modelo local como fallback.
+GEMINI_API_KEY=tu_api_key_aqui
+
+# --- MODELO LOCAL (fallback si Gemini falla o no hay API key) ---
 LOCAL_AI_URL=http://localhost:11434
 LOCAL_AI_MODEL=qwen2.5:0.5b
 
-# Base de datos (opcional, por defecto usa SQLite local)
+# Base de datos
 DATABASE_URL=sqlite:///./checkbar.db
 ```
 
-> **⚠️ Importante:** El archivo `.env` está en el `.gitignore` y nunca debe subirse al repositorio.
+> **⚠️ Importante:** El archivo `.env` está en `.gitignore` y nunca debe subirse al repositorio.
+
+#### Obtener API Key de Gemini (gratuita)
+
+1. Ve a [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+2. Haz clic en **"Create API key"**
+3. Pégala en tu `.env` en `GEMINI_API_KEY=`
+
+Si no configuras la key, el sistema usa automáticamente Ollama local como fallback.
 
 ---
 
 ## Ejecución
 
-### 5. Ejecutar el Seeder (poblar la base de datos)
+### 5. Ejecutar el Seeder de productos
 
 ```bash
 python src/adapters/seed.py
 ```
 
-Esto insertará **49 productos realistas** de bar (whiskys, vodkas, rones, ginebras, cervezas, mezcladores, etc.) en la base de datos SQLite.
+Inserta **50 productos realistas** de bar (whiskys, vodkas, rones, ginebras, cervezas, mezcladores, etc.).
 
-Salida esperada:
+### 5b. (Opcional) Generar historial de ventas de demostración
+
+```bash
+python -m scripts.seed_ventas
 ```
-[CheckBar] Iniciando seeder de base de datos...
-[OK] Seeder completado:
-   Productos insertados: 49
-   Productos omitidos (ya existian): 0
-   Total en catalogo: 49
-```
+
+Genera **364 ventas** distribuidas en los últimos 30 días con patrones realistas (más ventas los fines de semana). Útil para poblar las gráficas del dashboard.
 
 ### 6. Levantar el servidor
 
 ```bash
-# Desde la raíz del proyecto
 uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -175,41 +187,22 @@ El sistema estará disponible en:
 | `http://localhost:8000` | Dashboard web (frontend) |
 | `http://localhost:8000/api/docs` | Documentación Swagger UI |
 | `http://localhost:8000/api/redoc` | Documentación ReDoc |
-| `http://localhost:8000/productos` | API: Lista de productos |
+| `http://localhost:8000/chat/status` | Estado del backend de IA |
 
 ---
 
 ## API Endpoints
 
 ### `GET /productos`
-
 Lista todos los productos del inventario con estado de stock.
 
-```bash
-curl http://localhost:8000/productos
-```
+### `POST /productos`
+Registra un nuevo producto en el inventario.
 
-Respuesta:
-```json
-[
-  {
-    "id": 1,
-    "nombre": "Vodka Absolut Original",
-    "categoria": "Vodka",
-    "precio_unitario": 75.0,
-    "precio_costo": 42.0,
-    "stock_actual": 36,
-    "stock_minimo": 8,
-    "unidad_medida": "Botella 750ml",
-    "proveedor": "Distribuidora Norte",
-    "tiene_stock_bajo": false,
-    "margen_ganancia": 44.0
-  }
-]
-```
+### `GET /ventas`
+Retorna el historial completo de ventas (usado por las gráficas del dashboard).
 
 ### `POST /ventas`
-
 Registra una nueva venta y descuenta el inventario automáticamente.
 
 ```bash
@@ -224,14 +217,55 @@ curl -X POST http://localhost:8000/ventas \
 ```
 
 ### `POST /chat`
-
-Pregunta al asistente Barman AI (RAG con Gemini).
+Pregunta al asistente Barman AI con acceso al inventario real.
 
 ```bash
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{"pregunta": "Como preparo un Mojito?"}'
+  -d '{"pregunta": "Que productos tienen stock bajo?"}'
 ```
+
+### `POST /chat/reset`
+Limpia el historial de conversación del asistente.
+
+### `GET /chat/status`
+Muestra qué backend de IA está activo (Gemini o local).
+
+---
+
+## Dashboard — Funcionalidades
+
+### KPIs en tiempo real (5 tarjetas)
+- Total de productos en inventario
+- Productos con stock bajo
+- Número de categorías
+- Ventas realizadas hoy
+- Ingresos de los últimos 7 días
+
+### Gráficas
+- **Historial de ventas** (línea suavizada) — ingresos diarios de los últimos 30 días
+- **Top 7 productos** (barras horizontales) — productos con mayores ingresos generados
+
+### Notificaciones 🔔
+El botón de campanita en la barra superior abre un panel con todos los productos que tienen stock bajo, mostrando stock actual vs. mínimo requerido.
+
+---
+
+## Barman AI — Asistente Inteligente
+
+El asistente usa una estrategia en cascada:
+
+1. **Gemini 2.0 Flash** (si `GEMINI_API_KEY` está configurada) — respuestas en < 2 segundos
+2. **Ollama local** (fallback automático) — funciona sin internet
+
+Capacidades:
+- **Consulta de inventario real**: responde con datos exactos de la BD (stock actual, precios, alertas)
+- **Memoria de conversación**: recuerda el contexto de la sesión
+- **Recetas de cócteles**: Mojito, Margarita, Old Fashioned, Daiquiri, Aperol Spritz y más
+- **Recomendaciones**: sugiere cócteles según el stock disponible
+- **Análisis de ventas**: comenta sobre tendencias y productos más vendidos
+
+El cabezal del chat muestra el backend activo: `✨ Gemini 2.0 Flash` o `Local · modelo`.
 
 ---
 
@@ -243,14 +277,9 @@ curl -X POST http://localhost:8000/chat \
 python -m pytest tests/tdd/ -v
 ```
 
-Resultado esperado: **28 tests pasando** ✅
-
 ### Tests BDD
 
-Los escenarios Gherkin están en `tests/bdd/inventario.feature`.
-
 ```bash
-# Requiere pytest-bdd instalado
 python -m pytest tests/bdd/ -v
 ```
 
@@ -259,45 +288,15 @@ python -m pytest tests/bdd/ -v
 ## Metodologías Aplicadas
 
 ### TDD (Test Driven Development)
-
-1. **Red:** Se escribieron 28 pruebas unitarias antes del código del dominio
-2. **Green:** Se implementó el código mínimo para hacer pasar todas las pruebas
-3. **Refactor:** Se limpió el código manteniendo las pruebas en verde
+1. **Red:** Pruebas unitarias escritas antes del código de dominio
+2. **Green:** Implementación mínima para pasar las pruebas
+3. **Refactor:** Limpieza manteniendo pruebas en verde
 
 ### BDD (Behavior Driven Development)
-
-Los escenarios en Gherkin (`inventario.feature`) describen el comportamiento del sistema en lenguaje natural:
-- Registrar un nuevo producto
-- Reducir inventario al vender
-- Alertas de stock insuficiente
+Escenarios en Gherkin (`inventario.feature`) que describen el comportamiento en lenguaje natural.
 
 ### SDD (System Design Document)
-
-Ver [docs/SDD.md](./docs/SDD.md) para:
-- Arquitectura Hexagonal detallada
-- Diagrama de Casos de Uso (Mermaid)
-- Diagrama Entidad-Relación (Mermaid)
-- Implementación RAG documentada
-
----
-
-## Asistente IA - Barman AI (RAG)
-
-El asistente usa el patrón **Retrieval-Augmented Generation**:
-
-1. **Retrieval:** Lee `src/adapters/recetas_y_reglas.txt` (5 recetas + 3 políticas)
-2. **Augmentation:** Inyecta el contexto en el prompt
-3. **Generation:** Llama a tu modelo local (Ollama/LM Studio) para generar la respuesta
-
-El archivo `recetas_y_reglas.txt` contiene:
-- Receta de Mojito Clásico
-- Receta de Margarita Clásica
-- Receta de Old Fashioned
-- Receta de Daiquiri de Fresa
-- Receta de Aperol Spritz
-- Política de Control de Stock Mínimo
-- Política de Rotación FIFO
-- Política de Mermas y Ajustes
+Ver [docs/SDD.md](./docs/SDD.md) para arquitectura detallada, diagramas UML y documentación técnica.
 
 ---
 
@@ -307,4 +306,4 @@ MIT License - ver [LICENSE](./LICENSE) para detalles.
 
 ---
 
-*Desarrollado con Arquitectura Hexagonal, TDD/BDD y asistencia de IA generativa.*
+*Desarrollado con Arquitectura Hexagonal, TDD/BDD, Gemini 2.0 Flash y asistencia de IA generativa.*

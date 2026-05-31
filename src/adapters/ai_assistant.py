@@ -1,142 +1,231 @@
 """
-Adaptador de IA - Asistente RAG con IA Local
+Adaptador de IA - Barman AI v4
 CheckBar - Capa de Adaptadores
 
-Implementa el patron RAG (Retrieval-Augmented Generation):
-1. RETRIEVAL: Lee el archivo de conocimiento (recetas y reglas)
-2. AUGMENTATION: Inyecta el contexto en el prompt
-3. GENERATION: Llama a una API compatible con OpenAI (Ollama/LM Studio)
+Estrategia en cascada:
+  1. Gemini 2.0 Flash (API gratuita, instantáneo) — si GEMINI_API_KEY está configurada
+  2. Fallback → Ollama local (qwen2.5:0.5b) — si no hay API key o Gemini falla
+
+Características:
+- Memoria de conversación entre turnos
+- Acceso al inventario real de la BD
+- Prompt anti-alucinaciones (temperatura baja)
+- Respuestas rápidas y concisas
 """
 
 import os
 import httpx
 from pathlib import Path
+from typing import List, Dict, Optional
 from dotenv import load_dotenv
 from src.ports.ai_assistant_port import IAIAssistant
 
-# Cargar variables de entorno, forzando lectura del archivo .env
 load_dotenv(override=True)
 
-# Ruta al archivo de conocimiento RAG
 KNOWLEDGE_BASE_PATH = Path(__file__).parent / "recetas_y_reglas.txt"
+
+# Gemini REST endpoint (no SDK needed, just httpx)
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 
 def _load_knowledge_base() -> str:
-    """Carga el archivo de conocimiento para el RAG."""
     if not KNOWLEDGE_BASE_PATH.exists():
-        raise FileNotFoundError(
-            f"Archivo de conocimiento no encontrado: {KNOWLEDGE_BASE_PATH}"
+        return ""
+    text = KNOWLEDGE_BASE_PATH.read_text(encoding="utf-8")
+    return text[:4000] if len(text) > 4000 else text
+
+
+def _get_inventory_context(db_session) -> str:
+    """Consulta el inventario de la BD y lo formatea limpiamente para la IA."""
+    try:
+        from src.adapters.database import ProductoModel
+        productos = db_session.query(ProductoModel).order_by(
+            ProductoModel.stock_actual.asc()
+        ).all()
+
+        if not productos:
+            return "INVENTARIO: Vacío."
+
+        bajos = [p for p in productos if p.stock_actual < p.stock_minimo]
+        ok = [p for p in productos if p.stock_actual >= p.stock_minimo]
+
+        lines = ["=== INVENTARIO ACTUAL DEL BAR ==="]
+
+        if bajos:
+            lines.append(f"\n⚠️ STOCK BAJO - NECESITAN REPOSICIÓN ({len(bajos)} productos):")
+            for p in bajos:
+                lines.append(
+                    f"  - {p.nombre}: {p.stock_actual} {p.unidad_medida} "
+                    f"(mínimo: {p.stock_minimo}) | ${p.precio_unitario:.2f}"
+                )
+        else:
+            lines.append("\n✅ No hay productos con stock bajo.")
+
+        lines.append(f"\n✅ DISPONIBLES ({len(ok)} productos):")
+        for p in ok[:20]:
+            lines.append(
+                f"  - {p.nombre}: {p.stock_actual} {p.unidad_medida} "
+                f"| {p.categoria} | ${p.precio_unitario:.2f}"
+            )
+        if len(ok) > 20:
+            lines.append(f"  ... y {len(ok) - 20} productos más disponibles.")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"(Error consultando inventario: {e})"
+
+
+def _build_system_prompt(db_session) -> str:
+    inventory = _get_inventory_context(db_session) if db_session else "Inventario no disponible."
+    recipes = _load_knowledge_base()
+
+    return f"""Eres "Barman AI", asistente del sistema CheckBar para gestión de bar premium.
+
+DATOS REALES DEL SISTEMA (úsalos para responder con precisión):
+{inventory}
+
+RECETAS DEL BAR (para preguntas sobre cócteles):
+{recipes}
+
+INSTRUCCIONES ESTRICTAS:
+- Responde SIEMPRE en español, de forma breve y directa (máximo 8 líneas).
+- Para preguntas de STOCK o INVENTARIO: usa ÚNICAMENTE los datos del INVENTARIO ACTUAL de arriba. NO inventes productos ni cantidades.
+- Para preguntas de RECETAS: usa la sección de recetas del bar.
+- Para RECOMENDACIONES: sugiere cócteles usando productos que tengan buen stock.
+- NO inventes nombres de productos, precios ni cantidades que no estén en los datos.
+- Recuerdas toda la conversación actual."""
+
+
+class GeminiAssistant:
+    """Usa Gemini 2.0 Flash vía REST API (gratis, sin SDK)."""
+
+    def __init__(self, api_key: str):
+        self._api_key = api_key
+        self._history: List[Dict] = []  # Gemini format: [{role, parts:[{text}]}]
+        self._db_session = None
+
+    def set_db_session(self, db_session):
+        self._db_session = db_session
+
+    def chat(self, pregunta: str) -> str:
+        self._history.append({"role": "user", "parts": [{"text": pregunta}]})
+        if len(self._history) > 16:
+            self._history = self._history[-16:]
+
+        system_instruction = _build_system_prompt(self._db_session)
+
+        payload = {
+            "system_instruction": {"parts": [{"text": system_instruction}]},
+            "contents": self._history,
+            "generationConfig": {
+                "temperature": 0.3,
+                "maxOutputTokens": 512,
+                "topP": 0.9,
+            }
+        }
+
+        try:
+            response = httpx.post(
+                f"{GEMINI_URL}?key={self._api_key}",
+                json=payload,
+                timeout=30.0
+            )
+            response.raise_for_status()
+            data = response.json()
+            text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            self._history.append({"role": "model", "parts": [{"text": text}]})
+            return text
+        except Exception as e:
+            raise RuntimeError(f"Gemini error: {e}")
+
+    def clear_history(self):
+        self._history = []
+
+
+class OllamaAssistant:
+    """Usa Ollama local vía /api/chat."""
+
+    def __init__(self, api_url: str, model: str):
+        self._api_url = api_url.rstrip("/").replace("/v1", "")
+        self._model = model
+        self._history: List[Dict[str, str]] = []
+        self._db_session = None
+
+    def set_db_session(self, db_session):
+        self._db_session = db_session
+
+    def chat(self, pregunta: str) -> str:
+        self._history.append({"role": "user", "content": pregunta})
+        if len(self._history) > 12:
+            self._history = self._history[-12:]
+
+        payload = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": _build_system_prompt(self._db_session)}
+            ] + self._history,
+            "stream": False,
+            "options": {"temperature": 0.3, "num_predict": 400}
+        }
+
+        response = httpx.post(
+            f"{self._api_url}/api/chat",
+            json=payload,
+            timeout=300.0
         )
-    return KNOWLEDGE_BASE_PATH.read_text(encoding="utf-8")
+        response.raise_for_status()
+        respuesta = response.json().get("message", {}).get("content", "").strip()
+        if not respuesta:
+            respuesta = "No pude generar una respuesta."
+        self._history.append({"role": "assistant", "content": respuesta})
+        return respuesta
+
+    def clear_history(self):
+        self._history = []
 
 
 class LocalAIRAGAssistant(IAIAssistant):
     """
-    Implementacion del asistente de IA usando un modelo local (via API compatible OpenAI).
+    Fachada principal: intenta Gemini primero, cae a Ollama si no hay API key.
+    Expone la misma interfaz sin importar cuál backend está activo.
     """
 
     def __init__(self):
-        """Inicializa el cliente con la URL y el modelo del entorno."""
-        self._api_url = os.getenv("LOCAL_AI_URL", "http://localhost:11434/v1")
-        self._model = os.getenv("LOCAL_AI_MODEL", "qwen2.5:7b")
+        gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+        local_url = os.getenv("LOCAL_AI_URL", "http://localhost:11434")
+        local_model = os.getenv("LOCAL_AI_MODEL", "qwen2.5:0.5b")
+
+        if gemini_key:
+            self._backend = GeminiAssistant(gemini_key)
+            self._backend_name = "Gemini 2.0 Flash"
+        else:
+            self._backend = OllamaAssistant(local_url, local_model)
+            self._backend_name = f"Local ({local_model})"
+
+        self._db_session = None
+
+    def set_db_session(self, db_session):
+        self._db_session = db_session
+        self._backend.set_db_session(db_session)
 
     def chat(self, pregunta: str) -> str:
-        """
-        Procesa una pregunta usando el patron RAG y el modelo local.
-        """
         if not pregunta or not pregunta.strip():
-            return "Por favor, escribe una pregunta para que pueda ayudarte."
-
+            return "Por favor, escribe una pregunta."
         try:
-            contexto = _load_knowledge_base()
-        except FileNotFoundError as e:
-            return f"Error: No se pudo cargar la base de conocimiento. {str(e)}"
-
-        system_prompt, user_prompt = _build_rag_messages(contexto=contexto, pregunta=pregunta)
-
-        # GENERATION - Llamar a la API local (Ollama Nativo /api/generate)
-        try:
-            # Construimos el endpoint. Si el usuario puso /v1, asumimos OpenAI
-            endpoint = f"{self._api_url}/api/generate"
-            is_openai = False
-            
-            if "/v1" in self._api_url:
-                endpoint = f"{self._api_url}/chat/completions"
-                is_openai = True
-                payload = {
-                    "model": self._model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    "temperature": 0.7
-                }
-            else:
-                # Payload para Ollama /api/generate (más compatible con versiones antiguas)
-                prompt_text = f"Sistema: {system_prompt}\n\nUsuario: {pregunta}"
-                payload = {
-                    "model": self._model,
-                    "prompt": prompt_text,
-                    "stream": False,
-                    "options": {"temperature": 0.7}
-                }
-
-            response = httpx.post(
-                endpoint,
-                json=payload,
-                timeout=300.0
-            )
-            response.raise_for_status()
-            data = response.json()
-            
-            if is_openai:
-                return data["choices"][0]["message"]["content"]
-            else:
-                return data.get("response", "Respuesta inesperada de la IA local.")
-                
-        except httpx.RequestError as e:
-            return (
-                f"Error al conectar con la IA local en {self._api_url}. "
-                f"Asegurate de que el servidor (Ollama/LM Studio) este encendido. "
-                f"Detalle técnico: {str(e)}"
-            )
+            return self._backend.chat(pregunta)
         except Exception as e:
             return (
-                f"Lo siento, hubo un error inesperado al procesar tu consulta. "
-                f"Detalle tecnico: {str(e)}"
+                f"Error al conectar con el asistente de IA. "
+                f"Backend: {self._backend_name}. Detalle: {str(e)}"
             )
 
+    def clear_history(self):
+        self._backend.clear_history()
 
-def _build_rag_messages(contexto: str, pregunta: str) -> tuple[str, str]:
-    """
-    Construye los mensajes de sistema y usuario para la IA local.
-    """
-    system_prompt = f"""Eres el asistente de IA de CheckBar, un sistema de gestion de inventario y cocteleria para un bar de alta calidad. Tu nombre es "Barman AI".
-
-Tu personalidad:
-- Eres experto en cocteleria y gestion de bar
-- Respondes de manera amigable, profesional y practica
-- Usas el conocimiento provisto para dar respuestas precisas
-- Si te preguntan algo que no esta en tu base de conocimiento, lo dices honestamente
-- Puedes hacer sugerencias basadas en el contexto del bar
-
-BASE DE CONOCIMIENTO DEL BAR (Recetas y Politicas):
-===================================================
-{contexto}
-===================================================
-
-Instrucciones importantes:
-1. Responde SIEMPRE en el mismo idioma de la pregunta (espanol preferentemente).
-2. Basa tu respuesta en la informacion de la base de conocimiento cuando sea relevante.
-3. Para recetas, incluye los ingredientes y pasos de preparacion de manera clara.
-4. Para consultas de inventario o politicas, cita las reglas especificas.
-5. Si la pregunta no esta cubierta en la base de conocimiento, usa tu conocimiento general de cocteleria pero indica que es informacion general.
-6. Mantén las respuestas concisas y practicas para uso en el bar."""
-
-    user_prompt = pregunta
-    return system_prompt, user_prompt
+    @property
+    def backend_name(self) -> str:
+        return self._backend_name
 
 
 def create_assistant() -> LocalAIRAGAssistant:
-    """Factory function para crear el asistente de IA."""
     return LocalAIRAGAssistant()

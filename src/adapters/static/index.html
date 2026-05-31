@@ -202,30 +202,58 @@
           </div>
         </div>
 
-        <!-- KPI Cards -->
-        <div class="grid grid-cols-3 gap-md mb-lg" id="kpi-row">
+        <!-- KPI Cards - 5 metrics -->
+        <div class="grid grid-cols-5 gap-md mb-lg" id="kpi-row">
           <div class="glass-panel rounded-xl p-md">
-            <p class="font-label-caps text-label-caps text-on-surface-variant mb-xs">TOTAL PRODUCTOS</p>
-            <p id="kpi-total" class="font-display-lg text-[32px] font-bold text-on-surface">--</p>
+            <p class="font-label-caps text-label-caps text-on-surface-variant mb-xs text-[10px]">TOTAL PRODUCTOS</p>
+            <p id="kpi-total" class="text-[28px] font-bold text-on-surface">--</p>
           </div>
           <div class="glass-panel rounded-xl p-md">
-            <p class="font-label-caps text-label-caps text-on-surface-variant mb-xs">ALERTAS STOCK BAJO</p>
-            <p id="kpi-alertas" class="font-display-lg text-[32px] font-bold text-tertiary">--</p>
+            <p class="font-label-caps text-label-caps text-on-surface-variant mb-xs text-[10px]">STOCK BAJO</p>
+            <p id="kpi-alertas" class="text-[28px] font-bold text-tertiary">--</p>
           </div>
           <div class="glass-panel rounded-xl p-md">
-            <p class="font-label-caps text-label-caps text-on-surface-variant mb-xs">CATEGORIAS</p>
-            <p id="kpi-categorias" class="font-display-lg text-[32px] font-bold text-primary">--</p>
+            <p class="font-label-caps text-label-caps text-on-surface-variant mb-xs text-[10px]">CATEGORIAS</p>
+            <p id="kpi-categorias" class="text-[28px] font-bold text-primary">--</p>
+          </div>
+          <div class="glass-panel rounded-xl p-md">
+            <p class="font-label-caps text-label-caps text-on-surface-variant mb-xs text-[10px]">VENTAS HOY</p>
+            <p id="kpi-ventas-hoy" class="text-[28px] font-bold text-secondary">--</p>
+          </div>
+          <div class="glass-panel rounded-xl p-md">
+            <p class="font-label-caps text-label-caps text-on-surface-variant mb-xs text-[10px]">INGRESOS 7 DIAS</p>
+            <p id="kpi-ingresos" class="text-[22px] font-bold text-primary">--</p>
           </div>
         </div>
 
-        <!-- Sales Chart -->
-        <div class="glass-panel rounded-xl p-lg shadow-2xl relative w-full h-[400px]">
-          <div class="mb-md">
-            <h3 class="font-title-lg text-title-lg text-on-surface">Historial de Ventas</h3>
-            <p class="font-body-sm text-body-sm text-on-surface-variant">Ingresos generados por día</p>
+        <!-- Charts Row -->
+        <div class="grid grid-cols-3 gap-md">
+          <!-- Sales History Chart (2/3 width) -->
+          <div class="col-span-2 glass-panel rounded-xl p-lg shadow-2xl">
+            <div class="flex justify-between items-start mb-md">
+              <div>
+                <h3 class="font-title-lg text-title-lg text-on-surface">Historial de Ventas</h3>
+                <p class="font-body-sm text-body-sm text-on-surface-variant">Ingresos diarios (30 días)</p>
+              </div>
+              <span class="material-symbols-outlined text-primary text-[20px]">show_chart</span>
+            </div>
+            <div style="height:260px; position:relative;">
+              <canvas id="salesChart"></canvas>
+            </div>
           </div>
-          <div class="w-full h-[300px]">
-            <canvas id="salesChart"></canvas>
+
+          <!-- Top Products Chart (1/3 width) -->
+          <div class="glass-panel rounded-xl p-lg shadow-2xl">
+            <div class="flex justify-between items-start mb-md">
+              <div>
+                <h3 class="font-title-lg text-title-lg text-on-surface">Top Vendidos</h3>
+                <p class="font-body-sm text-body-sm text-on-surface-variant">Por ingresos</p>
+              </div>
+              <span class="material-symbols-outlined text-primary text-[20px]">bar_chart</span>
+            </div>
+            <div style="height:260px; position:relative;">
+              <canvas id="topProductsChart"></canvas>
+            </div>
           </div>
         </div>
       </div>
@@ -387,12 +415,17 @@
         </div>
         <div>
           <h3 class="font-title-md text-title-md text-on-surface leading-none">Barman AI</h3>
-          <p class="font-label-caps text-label-caps text-on-surface-variant" id="ai-status">Powered by Local AI</p>
+          <p class="font-label-caps text-label-caps text-on-surface-variant" id="ai-status">Cargando...</p>
         </div>
         <!-- Live indicator -->
         <div class="w-2 h-2 rounded-full bg-primary animate-pulse ml-xs" id="ai-live-dot"></div>
       </div>
-      <span class="material-symbols-outlined text-on-surface-variant text-[20px]" id="chat-toggle-icon">keyboard_arrow_down</span>
+      <div class="flex items-center gap-xs">
+        <button id="btn-reset-chat" title="Limpiar conversación" onclick="event.stopPropagation(); resetChat();" class="w-7 h-7 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors">
+          <span class="material-symbols-outlined text-on-surface-variant text-[18px]">restart_alt</span>
+        </button>
+        <span class="material-symbols-outlined text-on-surface-variant text-[20px]" id="chat-toggle-icon">keyboard_arrow_down</span>
+      </div>
     </div>
 
     <!-- Chat Body (messages area) -->
@@ -412,13 +445,16 @@
       <!-- Suggestion chips -->
       <div class="flex flex-wrap gap-2 mt-auto pt-2" id="suggestion-chips">
         <button onclick="sendSuggestion('Como preparo un Mojito?')" class="text-xs px-3 py-1.5 rounded-full border border-primary/40 text-primary hover:bg-primary/10 transition-colors font-body-sm">
-          Receta Mojito
+          🍹 Receta Mojito
         </button>
-        <button onclick="sendSuggestion('Cuales son las politicas de stock minimo?')" class="text-xs px-3 py-1.5 rounded-full border border-outline-variant text-on-surface-variant hover:bg-white/5 transition-colors font-body-sm">
-          Politicas stock
+        <button onclick="sendSuggestion('Que productos tienen stock bajo?')" class="text-xs px-3 py-1.5 rounded-full border border-tertiary/40 text-tertiary hover:bg-tertiary/10 transition-colors font-body-sm">
+          ⚠️ Stock bajo
         </button>
-        <button onclick="sendSuggestion('Como hago una Margarita perfecta?')" class="text-xs px-3 py-1.5 rounded-full border border-outline-variant text-on-surface-variant hover:bg-white/5 transition-colors font-body-sm">
-          Receta Margarita
+        <button onclick="sendSuggestion('Recomiendame un coctel con Gin Hendricks')" class="text-xs px-3 py-1.5 rounded-full border border-outline-variant text-on-surface-variant hover:bg-white/5 transition-colors font-body-sm">
+          🍸 Recomienda coctel
+        </button>
+        <button onclick="sendSuggestion('Cuanto whisky tenemos disponible?')" class="text-xs px-3 py-1.5 rounded-full border border-outline-variant text-on-surface-variant hover:bg-white/5 transition-colors font-body-sm">
+          📦 Consultar stock
         </button>
       </div>
     </div>

@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupVentaForm();
   setupProductoForm();
   loadSalesChart();
+  loadAIStatus();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -137,10 +138,94 @@ function renderKPIs(productos) {
   document.getElementById('kpi-alertas').textContent = productos.filter(p => p.tiene_stock_bajo).length;
   document.getElementById('kpi-categorias').textContent = new Set(productos.map(p => p.categoria)).size;
 }
+
+function updateKPIsFromVentas(ventas) {
+  const hoy = new Date().toISOString().split('T')[0];
+  const ventasHoy = ventas.filter(v => v.fecha_venta && v.fecha_venta.startsWith(hoy));
+  document.getElementById('kpi-ventas-hoy').textContent = ventasHoy.length;
+
+  const hace7Dias = new Date();
+  hace7Dias.setDate(hace7Dias.getDate() - 7);
+  const ventas7d = ventas.filter(v => v.fecha_venta && new Date(v.fecha_venta) >= hace7Dias);
+  const ingresos7d = ventas7d.reduce((sum, v) => sum + v.total, 0);
+  document.getElementById('kpi-ingresos').textContent = '$' + ingresos7d.toFixed(0);
+}
 function updateAlertBadge(productos) {
   const alertCount = productos.filter(p => p.tiene_stock_bajo).length;
   const badge = document.getElementById('alert-badge');
   badge.classList.toggle('hidden', alertCount === 0);
+  if (alertCount > 0) {
+    badge.textContent = alertCount > 9 ? '9+' : alertCount;
+    badge.className = badge.className.replace('w-2 h-2', '');
+    badge.style.cssText = 'min-width:16px;height:16px;font-size:10px;display:flex;align-items:center;justify-content:center;padding:0 3px;';
+  }
+  setupAlertsButton(productos);
+}
+
+function setupAlertsButton(productos) {
+  const btn = document.getElementById('btn-alerts');
+  if (!btn) return;
+  // Remove previous listener
+  btn.replaceWith(btn.cloneNode(true));
+  const freshBtn = document.getElementById('btn-alerts');
+  freshBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    showAlertsPanel(productos);
+  });
+}
+
+function showAlertsPanel(productos) {
+  // Remove existing panel
+  document.getElementById('alerts-panel')?.remove();
+
+  const bajos = productos.filter(p => p.tiene_stock_bajo);
+  const panel = document.createElement('div');
+  panel.id = 'alerts-panel';
+  panel.className = 'fixed top-16 right-8 w-80 z-50 glass-panel rounded-xl shadow-2xl border border-white/10 overflow-hidden';
+  panel.style.animation = 'fadeInDown 0.2s ease';
+
+  panel.innerHTML = `
+    <div class="px-4 py-3 border-b border-white/10 flex justify-between items-center bg-surface-container-low/80">
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-tertiary text-[18px]">warning</span>
+        <span class="font-semibold text-on-surface text-sm">Alertas de Stock</span>
+      </div>
+      <button onclick="document.getElementById('alerts-panel').remove()" class="text-on-surface-variant hover:text-white">
+        <span class="material-symbols-outlined text-[18px]">close</span>
+      </button>
+    </div>
+    <div class="max-h-72 overflow-y-auto divide-y divide-white/5">
+      ${bajos.length === 0
+        ? `<div class="p-4 text-center text-on-surface-variant text-sm">✅ Todo el stock está en orden</div>`
+        : bajos.map(p => `
+          <div class="px-4 py-3 flex justify-between items-center hover:bg-white/5 transition-colors">
+            <div>
+              <p class="text-sm font-medium text-on-surface">${escapeHtml(p.nombre)}</p>
+              <p class="text-xs text-on-surface-variant">${p.categoria}</p>
+            </div>
+            <div class="text-right shrink-0 ml-2">
+              <p class="text-tertiary font-bold text-sm">${p.stock_actual} uds.</p>
+              <p class="text-xs text-on-surface-variant">Mín: ${p.stock_minimo}</p>
+            </div>
+          </div>`).join('')}
+    </div>
+    ${bajos.length > 0 ? `
+    <div class="px-4 py-2 bg-tertiary/10 border-t border-white/5">
+      <p class="text-xs text-tertiary text-center">${bajos.length} producto${bajos.length > 1 ? 's' : ''} requiere${bajos.length > 1 ? 'n' : ''} reposición</p>
+    </div>` : ''}
+  `;
+
+  document.body.appendChild(panel);
+
+  // Close on outside click
+  setTimeout(() => {
+    document.addEventListener('click', function closePanel(ev) {
+      if (!panel.contains(ev.target)) {
+        panel.remove();
+        document.removeEventListener('click', closePanel);
+      }
+    });
+  }, 50);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -334,6 +419,12 @@ function setupChatInput() {
       sendChat();
     }
   });
+
+  // Wire up reset button if present
+  const btnReset = document.getElementById('btn-reset-chat');
+  if (btnReset) {
+    btnReset.addEventListener('click', resetChat);
+  }
 }
 
 async function sendChat() {
@@ -425,109 +516,191 @@ function toggleChat() {
   panel.style.transform = chatOpen ? 'translateY(0)' : 'translateY(calc(100% - 60px))';
 }
 
+async function resetChat() {
+  try {
+    await fetch(`${API_BASE}/chat/reset`, { method: 'POST' });
+  } catch(e) { /* ignore */ }
+  const chatBody = document.getElementById('chat-body');
+  if (chatBody) chatBody.innerHTML = '';
+  const chips = document.getElementById('suggestion-chips');
+  if (chips) chips.style.display = '';
+  appendMessage('ai', 'Historial limpiado. ¿En qué puedo ayudarte?');
+}
+
 function escapeHtml(text) {
   if (typeof text !== 'string') return String(text || '');
   const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
   return text.replace(/[&<>"']/g, m => map[m]);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DASHBOARD SALES CHART
-// ─────────────────────────────────────────────────────────────────────────────
+async function loadAIStatus() {
+  try {
+    const r = await fetch(`${API_BASE}/chat/status`);
+    if (!r.ok) return;
+    const data = await r.json();
+    const statusEl = document.getElementById('ai-status');
+    const dotEl = document.getElementById('ai-live-dot');
+    if (statusEl) {
+      if (data.gemini_configurado) {
+        statusEl.textContent = '✨ Gemini 2.0 Flash';
+        statusEl.style.color = '#D0BCFF';
+        if (dotEl) dotEl.style.background = '#D0BCFF';
+      } else {
+        statusEl.textContent = `Local · ${data.modelo_local}`;
+        statusEl.style.color = '';
+      }
+    }
+  } catch(e) {
+    const statusEl = document.getElementById('ai-status');
+    if (statusEl) statusEl.textContent = 'IA Local';
+  }
+}
+
+let topProductsChartInstance = null;
 
 async function loadSalesChart() {
   try {
     const response = await fetch(`${API_BASE}/ventas`);
     if(!response.ok) return;
-    
     const ventas = await response.json();
-    
-    // Aggregate sales by date
+
+    // Update ventas KPIs
+    updateKPIsFromVentas(ventas);
+
+    // ── LINE CHART: Sales by date ──
     const salesByDate = {};
     ventas.forEach(v => {
       if (!v.fecha_venta) return;
       const dateStr = v.fecha_venta.split('T')[0];
       salesByDate[dateStr] = (salesByDate[dateStr] || 0) + v.total;
     });
-
-    // Sort dates
-    const dates = Object.keys(salesByDate).sort();
+    const dates = Object.keys(salesByDate).sort().slice(-30);
     const totals = dates.map(d => salesByDate[d]);
 
     const ctx = document.getElementById('salesChart').getContext('2d');
-    
-    // Destroy previous instance to prevent overlapping
-    if (salesChartInstance) {
-      salesChartInstance.destroy();
-    }
+    if (salesChartInstance) salesChartInstance.destroy();
 
-    // Chart styling matching the design system
-    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-    gradient.addColorStop(0, 'rgba(208, 188, 255, 0.5)'); // Primary color with opacity
+    const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+    gradient.addColorStop(0, 'rgba(208, 188, 255, 0.45)');
     gradient.addColorStop(1, 'rgba(208, 188, 255, 0.0)');
 
     salesChartInstance = new Chart(ctx, {
       type: 'line',
       data: {
-        labels: dates.length ? dates : ['No hay ventas'],
+        labels: dates.length ? dates : ['Sin ventas'],
         datasets: [{
-          label: 'Ingresos Totales ($)',
+          label: 'Ingresos ($)',
           data: totals.length ? totals : [0],
           borderColor: '#D0BCFF',
           backgroundColor: gradient,
-          borderWidth: 3,
+          borderWidth: 2.5,
           pointBackgroundColor: '#F2B8B5',
           pointBorderColor: '#fff',
-          pointRadius: 5,
-          pointHoverRadius: 7,
+          pointRadius: 3,
+          pointHoverRadius: 6,
           fill: true,
           tension: 0.4
         }]
       },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false,
         plugins: {
-          legend: {
-            display: false
-          },
+          legend: { display: false },
           tooltip: {
-            backgroundColor: 'rgba(28, 27, 31, 0.9)',
-            titleColor: '#fff',
-            bodyColor: '#D0BCFF',
-            padding: 10,
-            cornerRadius: 8,
-            displayColors: false
+            backgroundColor: 'rgba(28,27,31,0.92)', titleColor: '#fff',
+            bodyColor: '#D0BCFF', padding: 10, cornerRadius: 8, displayColors: false,
+            callbacks: { label: (ctx) => '$' + ctx.parsed.y.toFixed(2) }
           }
         },
         scales: {
           y: {
             beginAtZero: true,
-            grid: {
-              color: 'rgba(255, 255, 255, 0.05)',
-              drawBorder: false,
-            },
-            ticks: {
-              color: '#CAC4D0',
-              callback: function(value) {
-                return '$' + value;
-              }
-            }
+            grid: { color: 'rgba(255,255,255,0.05)', drawBorder: false },
+            ticks: { color: '#CAC4D0', callback: v => '$' + v }
           },
           x: {
-            grid: {
-              display: false,
-              drawBorder: false,
-            },
-            ticks: {
-              color: '#CAC4D0'
-            }
+            grid: { display: false, drawBorder: false },
+            ticks: { color: '#CAC4D0', maxTicksLimit: 8 }
           }
         }
       }
     });
 
+    // ── BAR CHART: Top 7 products by revenue ──
+    loadTopProductsChart(ventas);
+
   } catch(err) {
-    console.error("Error loading sales chart", err);
+    console.error('Error loading sales chart', err);
+  }
+}
+
+function loadTopProductsChart(ventas) {
+  try {
+    // Aggregate revenue per product_id from lineas
+    const revenueByProduct = {};
+    ventas.forEach(v => {
+      (v.lineas || []).forEach(l => {
+        revenueByProduct[l.producto_id] = (revenueByProduct[l.producto_id] || 0) + l.subtotal;
+      });
+    });
+
+    // Sort and pick top 7
+    const sorted = Object.entries(revenueByProduct)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 7);
+
+    // Match product ids to names from allProducts
+    const labels = sorted.map(([id]) => {
+      const p = allProducts.find(pr => pr.id === parseInt(id));
+      return p ? p.nombre.split(' ').slice(0, 2).join(' ') : 'Prod. ' + id;
+    });
+    const data = sorted.map(([, rev]) => parseFloat(rev.toFixed(2)));
+
+    const ctx2 = document.getElementById('topProductsChart').getContext('2d');
+    if (topProductsChartInstance) topProductsChartInstance.destroy();
+
+    const colors = [
+      'rgba(208,188,255,0.8)', 'rgba(242,184,181,0.8)', 'rgba(100,180,255,0.8)',
+      'rgba(255,200,100,0.8)', 'rgba(130,220,170,0.8)', 'rgba(255,150,200,0.8)', 'rgba(160,200,255,0.8)'
+    ];
+
+    topProductsChartInstance = new Chart(ctx2, {
+      type: 'bar',
+      data: {
+        labels: labels.length ? labels : ['Sin datos'],
+        datasets: [{
+          label: 'Ingresos ($)',
+          data: data.length ? data : [0],
+          backgroundColor: colors.slice(0, data.length),
+          borderRadius: 6,
+          borderSkipped: false,
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(28,27,31,0.92)', titleColor: '#fff',
+            bodyColor: '#D0BCFF', padding: 8, cornerRadius: 6, displayColors: false,
+            callbacks: { label: (ctx) => '$' + ctx.parsed.x.toFixed(2) }
+          }
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            grid: { color: 'rgba(255,255,255,0.05)', drawBorder: false },
+            ticks: { color: '#CAC4D0', callback: v => '$' + v }
+          },
+          y: {
+            grid: { display: false, drawBorder: false },
+            ticks: { color: '#CAC4D0', font: { size: 11 } }
+          }
+        }
+      }
+    });
+  } catch(err) {
+    console.error('Error loading top products chart', err);
   }
 }
