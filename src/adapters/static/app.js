@@ -5,6 +5,7 @@
 
 const API_BASE = window.location.origin;
 let allProducts = [];
+let ventasCache = [];  // Cache para redibujar top productos tras cargar inventario
 let salesChartInstance = null;
 let chatOpen = true;
 
@@ -67,7 +68,12 @@ async function loadInventory() {
     renderInventoryTable(productos);
     renderKPIs(productos);
     updateAlertBadge(productos);
-    populateVentaDropdown(productos); // Update dropdown in Nueva Venta
+    populateVentaDropdown(productos);
+
+    // Si ya hay ventas en cache, redibujar top productos con nombres correctos
+    if (ventasCache.length > 0) {
+      loadTopProductsChart(ventasCache);
+    }
   } catch (error) {
     showTableError(`No se pudo conectar a la API: ${error.message}`);
   }
@@ -140,7 +146,13 @@ function renderKPIs(productos) {
 }
 
 function updateKPIsFromVentas(ventas) {
-  const hoy = new Date().toISOString().split('T')[0];
+  // Obtener fecha local en formato YYYY-MM-DD (sin problemas de zona horaria UTC)
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hoy = `${year}-${month}-${day}`;
+  
   const ventasHoy = ventas.filter(v => v.fecha_venta && v.fecha_venta.startsWith(hoy));
   document.getElementById('kpi-ventas-hoy').textContent = ventasHoy.length;
 
@@ -627,6 +639,7 @@ async function loadSalesChart() {
     });
 
     // ── BAR CHART: Top 7 products by revenue ──
+    ventasCache = ventas;  // Guardar para cuando lleguen los productos
     loadTopProductsChart(ventas);
 
   } catch(err) {
@@ -649,10 +662,14 @@ function loadTopProductsChart(ventas) {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 7);
 
-    // Match product ids to names from allProducts
+    // Match product ids to names — use full name, take first 3 words max
     const labels = sorted.map(([id]) => {
       const p = allProducts.find(pr => pr.id === parseInt(id));
-      return p ? p.nombre.split(' ').slice(0, 2).join(' ') : 'Prod. ' + id;
+      if (p) {
+        const words = p.nombre.split(' ');
+        return words.length > 3 ? words.slice(0, 3).join(' ') : p.nombre;
+      }
+      return 'Prod. ' + id;
     });
     const data = sorted.map(([, rev]) => parseFloat(rev.toFixed(2)));
 

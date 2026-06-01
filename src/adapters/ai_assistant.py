@@ -52,23 +52,20 @@ def _get_inventory_context(db_session) -> str:
         lines = ["=== INVENTARIO ACTUAL DEL BAR ==="]
 
         if bajos:
-            lines.append(f"\n⚠️ STOCK BAJO - NECESITAN REPOSICIÓN ({len(bajos)} productos):")
+            lines.append(f"\n⚠️ STOCK BAJO ({len(bajos)} productos necesitan reposición):")
             for p in bajos:
-                lines.append(
-                    f"  - {p.nombre}: {p.stock_actual} {p.unidad_medida} "
-                    f"(mínimo: {p.stock_minimo}) | ${p.precio_unitario:.2f}"
-                )
+                lines.append(f"  - {p.nombre}: {p.stock_actual}/{p.stock_minimo} {p.unidad_medida} | ${p.precio_unitario:.0f}")
         else:
-            lines.append("\n✅ No hay productos con stock bajo.")
+            lines.append("\n✅ Sin productos con stock bajo.")
 
         lines.append(f"\n✅ DISPONIBLES ({len(ok)} productos):")
-        for p in ok[:20]:
-            lines.append(
-                f"  - {p.nombre}: {p.stock_actual} {p.unidad_medida} "
-                f"| {p.categoria} | ${p.precio_unitario:.2f}"
-            )
-        if len(ok) > 20:
-            lines.append(f"  ... y {len(ok) - 20} productos más disponibles.")
+        # Agrupar por categoría para ser más compacto
+        from collections import defaultdict
+        por_categoria = defaultdict(list)
+        for p in ok:
+            por_categoria[p.categoria].append(f"{p.nombre} ({p.stock_actual} {p.unidad_medida}, ${p.precio_unitario:.0f})")
+        for cat, items in sorted(por_categoria.items()):
+            lines.append(f"  [{cat}]: {', '.join(items)}")
 
         return "\n".join(lines)
     except Exception as e:
@@ -79,21 +76,24 @@ def _build_system_prompt(db_session) -> str:
     inventory = _get_inventory_context(db_session) if db_session else "Inventario no disponible."
     recipes = _load_knowledge_base()
 
-    return f"""Eres "Barman AI", asistente del sistema CheckBar para gestión de bar premium.
+    return f"""Eres "Barman AI", el asistente oficial de CheckBar.
+TIENES ACCESO DIRECTO AL INVENTARIO. Usa los siguientes datos para responder:
 
-DATOS REALES DEL SISTEMA (úsalos para responder con precisión):
 {inventory}
 
-RECETAS DEL BAR (para preguntas sobre cócteles):
+RECETAS DEL BAR:
 {recipes}
 
-INSTRUCCIONES ESTRICTAS:
-- Responde SIEMPRE en español, de forma breve y directa (máximo 8 líneas).
-- Para preguntas de STOCK o INVENTARIO: usa ÚNICAMENTE los datos del INVENTARIO ACTUAL de arriba. NO inventes productos ni cantidades.
-- Para preguntas de RECETAS: usa la sección de recetas del bar.
-- Para RECOMENDACIONES: sugiere cócteles usando productos que tengan buen stock.
-- NO inventes nombres de productos, precios ni cantidades que no estén en los datos.
-- Recuerdas toda la conversación actual."""
+REGLAS DE ORO:
+1. Responde siempre en español, de forma breve (máximo 4 líneas).
+2. Si te preguntan por inventario o stock, lee los datos de arriba y responde. NUNCA digas que no tienes acceso.
+3. No inventes productos ni precios que no estén en la lista.
+4. Para recetas, usa la sección de recetas proporcionada."""
+
+
+class GeminiRateLimitError(Exception):
+    """Se lanza cuando Gemini devuelve 429 para activar el fallback a Ollama."""
+    pass
 
 
 class GeminiAssistant:
@@ -119,7 +119,7 @@ class GeminiAssistant:
             "contents": self._history,
             "generationConfig": {
                 "temperature": 0.3,
-                "maxOutputTokens": 512,
+                "maxOutputTokens": 400,
                 "topP": 0.9,
             }
         }
@@ -130,11 +130,16 @@ class GeminiAssistant:
                 json=payload,
                 timeout=30.0
             )
+            if response.status_code == 429:
+                # Rate limit — activar fallback a Ollama sin mostrar error al usuario
+                raise GeminiRateLimitError("Rate limit alcanzado, usando modelo local.")
             response.raise_for_status()
             data = response.json()
             text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
             self._history.append({"role": "model", "parts": [{"text": text}]})
             return text
+        except GeminiRateLimitError:
+            raise
         except Exception as e:
             raise RuntimeError(f"Gemini error: {e}")
 
@@ -156,16 +161,27 @@ class OllamaAssistant:
 
     def chat(self, pregunta: str) -> str:
         self._history.append({"role": "user", "content": pregunta})
-        if len(self._history) > 12:
-            self._history = self._history[-12:]
+        if len(self._history) > 6:
+            self._history = self._history[-6:]
+
+        context = _get_inventory_context(self._db_session) if self._db_session else ""
+        recipes = _load_knowledge_base()
+        
+        messages = [{"role": "system", "content": "Eres Barman AI. Responde en español y de forma súper corta basándote estrictamente en los datos que te da el usuario."}]
+        
+        for i, msg in enumerate(self._history):
+            if i == len(self._history) - 1:
+                # Inyectar el contexto directamente en la última pregunta del usuario (vital para modelos de 0.5b)
+                enriched = f"INVENTARIO ACTUAL:\n{context}\n\nRECETAS:\n{recipes}\n\nPREGUNTA DEL USUARIO:\n{msg['content']}"
+                messages.append({"role": "user", "content": enriched})
+            else:
+                messages.append(msg)
 
         payload = {
             "model": self._model,
-            "messages": [
-                {"role": "system", "content": _build_system_prompt(self._db_session)}
-            ] + self._history,
+            "messages": messages,
             "stream": False,
-            "options": {"temperature": 0.3, "num_predict": 400}
+            "options": {"temperature": 0.1, "num_predict": 300}
         }
 
         response = httpx.post(
@@ -195,11 +211,15 @@ class LocalAIRAGAssistant(IAIAssistant):
         local_url = os.getenv("LOCAL_AI_URL", "http://localhost:11434")
         local_model = os.getenv("LOCAL_AI_MODEL", "qwen2.5:0.5b")
 
+        # Siempre tener fallback local disponible
+        self._ollama = OllamaAssistant(local_url, local_model)
+        self._local_model = local_model
+
         if gemini_key:
             self._backend = GeminiAssistant(gemini_key)
             self._backend_name = "Gemini 2.0 Flash"
         else:
-            self._backend = OllamaAssistant(local_url, local_model)
+            self._backend = self._ollama
             self._backend_name = f"Local ({local_model})"
 
         self._db_session = None
@@ -207,6 +227,7 @@ class LocalAIRAGAssistant(IAIAssistant):
     def set_db_session(self, db_session):
         self._db_session = db_session
         self._backend.set_db_session(db_session)
+        self._ollama.set_db_session(db_session)
 
     def chat(self, pregunta: str) -> str:
         if not pregunta or not pregunta.strip():
@@ -214,13 +235,29 @@ class LocalAIRAGAssistant(IAIAssistant):
         try:
             return self._backend.chat(pregunta)
         except Exception as e:
+            error_str = str(e)
+            # Detectar 429 de cualquier forma (por clase de error o mensaje de texto)
+            is_rate_limit = (
+                isinstance(e, GeminiRateLimitError) or 
+                "429" in error_str or 
+                "Too Many Requests" in error_str
+            )
+            
+            if is_rate_limit and isinstance(self._backend, GeminiAssistant):
+                # Fallback garantizado a Ollama local
+                try:
+                    return self._ollama.chat(pregunta)
+                except Exception as e_ollama:
+                    return f"Gemini alcanzó su límite (429) y el modelo local también falló. Detalle local: {str(e_ollama)}"
+            
             return (
                 f"Error al conectar con el asistente de IA. "
-                f"Backend: {self._backend_name}. Detalle: {str(e)}"
+                f"Backend: {self._backend_name}. Detalle: {error_str}"
             )
 
     def clear_history(self):
         self._backend.clear_history()
+        self._ollama.clear_history()
 
     @property
     def backend_name(self) -> str:
